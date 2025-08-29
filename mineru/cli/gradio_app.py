@@ -356,7 +356,22 @@ def main(ctx,
             api_name=api_name
         )
 
-    demo.launch(server_name=server_name, server_port=server_port, show_api=api_enable)
+    # 强制设置服务器绑定地址
+    import os
+    if server_name is None:
+        server_name = os.environ.get('GRADIO_SERVER_NAME', '0.0.0.0')
+    if server_port is None:
+        server_port = int(os.environ.get('GRADIO_SERVER_PORT', 7860))
+    
+    print(f"Starting Gradio server on {server_name}:{server_port}")
+    
+    demo.launch(
+        server_name=server_name, 
+        server_port=server_port, 
+        show_api=api_enable,
+        share=False,
+        inbrowser=False
+    )
 
 
 if __name__ == '__main__':

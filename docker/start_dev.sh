@@ -39,8 +39,8 @@ case $choice in
     1)
         echo "🚀 启动开发容器..."
         docker run -it --gpus all \
-            --name mineru-dev \
-            -p 7700:7700 \
+            --name mineru-gradio-optimized \
+            -p 7860:7860 \
             -p 30000:30000 \
             -p 8200:8200 \
             -v $(pwd)/..:/workspace \
@@ -56,31 +56,31 @@ case $choice in
         ;;
     2)
         echo "🚀 启动Gradio开发服务..."
-        docker-compose -f docker-compose-dev.yaml --profile gradio-dev up -d
+        docker-compose -f docker-compose-gradio-optimized.yaml --profile gradio up -d
         echo "✅ Gradio开发服务已启动"
-        echo "访问地址: http://localhost:7700"
-        echo "查看日志: docker logs -f mineru-gradio-dev"
+        echo "访问地址: http://localhost:7860"
+        echo "查看日志: docker logs -f mineru-gradio-optimized"
         ;;
     3)
         echo "🚀 启动完整开发环境..."
-        docker-compose -f docker-compose-dev.yaml --profile dev up -d
+        docker-compose -f docker-compose-gradio-optimized.yaml --profile dev up -d
         echo "✅ 开发环境已启动"
-        echo "进入容器: docker exec -it mineru-dev bash"
-        echo "启动Gradio: docker exec -it mineru-dev python -m mineru.cli.gradio_app --server-port 7700"
+        echo "进入容器: docker exec -it mineru-gradio-optimized bash"
+        echo "启动Gradio: docker exec -it mineru-gradio-optimized python -m mineru.cli.gradio_app --server-port 7860"
         ;;
     4)
-        if docker ps | grep -q "mineru-dev"; then
+        if docker ps | grep -q "mineru-gradio-optimized"; then
             echo "🔧 进入现有开发容器..."
-            docker exec -it mineru-dev bash
+            docker exec -it mineru-gradio-optimized bash
         else
             echo "❌ 开发容器未运行，请先启动"
         fi
         ;;
     5)
         echo "🛑 停止开发环境..."
-        docker-compose -f docker-compose-dev.yaml down
-        docker stop mineru-dev mineru-gradio-dev 2>/dev/null || true
-        docker rm mineru-dev mineru-gradio-dev 2>/dev/null || true
+        docker-compose -f docker-compose-gradio-optimized.yaml down
+        docker stop mineru-gradio-optimized 2>/dev/null || true
+        docker rm mineru-gradio-optimized 2>/dev/null || true
         echo "✅ 开发环境已停止"
         ;;
     6)
@@ -98,5 +98,5 @@ echo "=== 开发环境管理命令 ==="
 echo "查看容器状态: docker ps | grep mineru"
 echo "查看日志: docker logs -f [容器名]"
 echo "进入容器: docker exec -it [容器名] bash"
-echo "停止服务: docker-compose -f docker-compose-dev.yaml down"
-echo "重启服务: docker-compose -f docker-compose-dev.yaml restart"
+echo "停止服务: docker-compose -f docker-compose-gradio-optimized.yaml down"
+echo "重启服务: docker-compose -f docker-compose-gradio-optimized.yaml restart"
