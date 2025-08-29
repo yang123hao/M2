@@ -1,0 +1,63 @@
+# MinerU 项目依赖包
+# 基础依赖
+boto3>=1.28.43
+click>=8.1.7
+loguru>=0.7.2
+numpy>=1.21.6
+pdfminer.six==20250506
+tqdm>=4.67.1
+requests
+httpx
+pillow>=11.0.0
+pypdfium2>=4.30.0
+pypdf>=5.6.0
+reportlab
+pdftext>=0.6.2
+modelscope>=1.26.0
+huggingface-hub>=0.32.4
+json-repair>=0.46.2
+opencv-python>=4.11.0.86
+fast-langdetect>=0.2.3,<0.3.0
+
+# VLM模型相关
+transformers>=4.51.1
+torch>=2.6.0
+accelerate>=1.5.1
+pydantic
+
+# SGLang加速框架
+sglang[all]>=0.4.7,<0.4.10
+
+# Pipeline后端
+matplotlib>=3.10,<4
+ultralytics>=8.3.48,<9
+doclayout_yolo==0.0.4
+dill>=0.3.8,<1
+rapid_table>=1.0.5,<2.0.0
+PyYAML>=6.0.2,<7
+ftfy>=6.3.1,<7
+openai>=1.70.0,<2
+shapely>=2.0.7,<3
+pyclipper>=1.3.0,<2
+omegaconf>=2.3.0,<3
+torchvision
+
+# API服务
+fastapi
+python-multipart
+uvicorn
+
+# Gradio界面
+gradio>=5.34,<6
+gradio-pdf>=0.0.22
+
+# 测试依赖
+pytest
+pytest-cov
+coverage
+beautifulsoup4
+fuzzywuzzy
+
+# 显存优化相关
+GPUtil
+psutil

@@ -1,0 +1,5 @@
+[33mde41fa58[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/master[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Update version.py with new version
+[33m30b698ec[m[33m ([m[1;33mtag: [m[1;33mmineru-2.1.11-released[m[33m)[m Merge pull request #3315 from opendatalab/fix-torch_2_8
+[33m5c00dcae[m Merge pull request #3314 from myhloli/fix-torch_2_8
+[33mc7e45603[m fix: add support for Torch 2.8.0 and MPS devices in batch analysis
+[33mbe4f3de3[m Update version.py with new version

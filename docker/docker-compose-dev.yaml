@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  # 开发环境容器
+  mineru-dev:
+    image: mineru-sglang:latest
+    container_name: mineru-dev
+    restart: unless-stopped
+    profiles: ["dev"]
+    ports:
+      - "7700:7700"      # Gradio
+      - "30000:30000"    # SGLang
+      - "8200:8200"      # API
+      - "22:22"          # SSH (可选)
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 8
+      MINERU_DEVICE_MODE: cuda
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:128
+      CUDA_LAUNCH_BLOCKING: 1
+      # 开发环境变量
+      PYTHONPATH: /workspace
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+    volumes:
+      # 挂载项目代码
+      - ../:/workspace
+      # 挂载模型缓存
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.cache/modelscope:/root/.cache/modelscope
+      # 挂载pip缓存
+      - ~/.cache/pip:/root/.cache/pip
+      # 挂载输出目录
+      - ./output:/workspace/output
+      - ./logs:/workspace/logs
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+        limits:
+          memory: 16G
+    working_dir: /workspace
+    command: /bin/bash -c "tail -f /dev/null"  # 保持容器运行
+    stdin_open: true
+    tty: true
+
+  # 开发环境Gradio服务
+  mineru-gradio-dev:
+    image: mineru-sglang:latest
+    container_name: mineru-gradio-dev
+    restart: unless-stopped
+    profiles: ["gradio-dev"]
+    ports:
+      - "7700:7700"
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 6
+      MINERU_DEVICE_MODE: cuda
+      PYTHONPATH: /workspace
+    volumes:
+      - ../:/workspace
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./output:/workspace/output
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+        limits:
+          memory: 12G
+    working_dir: /workspace
+    command: >
+      bash -c "
+        pip install -e . &&
+        python -m mineru.cli.gradio_app 
+          --server-name 0.0.0.0 
+          --server-port 7700 
+          --dp-size 1
+      "
+    depends_on:
+      - mineru-dev
+
+networks:
+  default:
+    name: mineru-dev-network
+    driver: bridge
+
+volumes:
+  output:
+    driver: local
+  logs:
+    driver: local
