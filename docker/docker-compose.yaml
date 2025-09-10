@@ -1,23 +1,40 @@
 services:
-  mineru-sglang-server:
+  # 显存优化的SGLang服务器
+  mineru-sglang:
     image: mineru-sglang:latest
     container_name: mineru-sglang-server
     restart: always
     profiles: ["sglang-server"]
     ports:
-      - 30000:30000
+      - "30000:30000"
     environment:
       MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 8
+      MINERU_DEVICE_MODE: cuda
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:128
+      CUDA_LAUNCH_BLOCKING: 1
     entrypoint: mineru-sglang-server
     command:
-      --host 0.0.0.0
-      --port 30000
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      - --mem-fraction-static
+      - "0.4"
+      - --load-in-4bit
+      - --max-model-len
+      - "2048"
+      - --disable-log-stats
+      - --disable-log-requests
     ulimits:
       memlock: -1
       stack: 67108864
     ipc: host
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:30000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:30010/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     deploy:
       resources:
         reservations:
@@ -25,47 +42,40 @@ services:
             - driver: nvidia
               device_ids: ["0"]
               capabilities: [gpu]
+        limits:
+          memory: 10G
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
 
-  mineru-api:
+  # 显存优化的Gradio界面
+  mineru-gradio-prod:
     image: mineru-sglang:latest
-    container_name: mineru-api
-    restart: always
-    profiles: ["api"]
-    ports:
-      - 8200:8200
-    environment:
-      MINERU_MODEL_SOURCE: local
-    entrypoint: mineru-api
-    command:
-      --host 0.0.0.0
-      --port 8200
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    ipc: host
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ["0"]
-              capabilities: [gpu]
-
-  mineru-gradio:
-    image: mineru-sglang:latest
-    container_name: mineru-gradio
+    container_name: mineru-gradio-prod
     restart: always
     profiles: ["gradio"]
     ports:
-      - 7860:7860
+      - "7860:7860"
     environment:
       MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 6
+      MINERU_DEVICE_MODE: cuda
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:128
+      CUDA_LAUNCH_BLOCKING: 1
     entrypoint: mineru-gradio
     command:
-      --server-name 0.0.0.0
-      --server-port 7860
-      --enable-sglang-engine true
-      --dp-size 2
+      - --server-name
+      - 0.0.0.0
+      - --server-port
+      - "7860"
+      - --enable-sglang-engine
+      - "true"
+      - --dp-size
+      - "1"
+      - --max-batch-size
+      - "1"
+      - --max-concurrent-requests
+      - "2"
     ulimits:
       memlock: -1
       stack: 67108864
@@ -75,5 +85,114 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["0", "1"]
+              device_ids: ["0"]
               capabilities: [gpu]
+        limits:
+          memory: 8G
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    depends_on:
+      - mineru-sglang-server
+
+  # 轻量级API服务（可选）
+  mineru-api-light:
+    image: mineru-sglang:latest
+    container_name: mineru-api-light
+    restart: always
+    profiles: ["api-light"]
+    ports:
+      - "8200:8200"
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 4
+      MINERU_DEVICE_MODE: cuda
+    entrypoint: mineru-api
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8200"
+      - --enable-sglang-engine
+      - "true"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+        limits:
+          memory: 6G
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+    depends_on:
+      - mineru-sglang-server
+
+  # 开发环境Gradio服务（合并自docker-compose-dev.yaml）
+  mineru-gradio-optimized:
+    image: mineru-sglang:latest
+    container_name: mineru-gradio-optimized
+    restart: unless-stopped
+    profiles: ["dev"]
+    ports:
+      - "7860:7860"      # Gradio
+      - "30000:30000"    # SGLang
+      - "8200:8200"      # API
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 8
+      MINERU_DEVICE_MODE: cuda
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:128
+      CUDA_LAUNCH_BLOCKING: 1
+      PYTHONPATH: /workspace
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+      GRADIO_SERVER_NAME: 0.0.0.0
+      GRADIO_SERVER_PORT: 7860
+    volumes:
+      - /mnt/nvme1n1/MinerU:/workspace
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ~/.cache/modelscope:/root/.cache/modelscope
+      - ~/.cache/pip:/root/.cache/pip
+      - ./output:/workspace/output
+      - ./logs:/workspace/logs
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+        limits:
+          memory: 16G
+    working_dir: /workspace
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "pip install -e . &&
+       python -m mineru.cli.gradio_app --server-name 0.0.0.0 --server-port 7860 --dp-size 1"
+
+networks:
+  default:
+    name: mineru-optimized-network
+    driver: bridge
+
+volumes:
+  models:
+    driver: local
+  logs:
+    driver: local
+  uploads:
+    driver: local
+  output:
+    driver: local

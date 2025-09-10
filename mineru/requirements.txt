@@ -1,0 +1,10 @@
+# MinerU 认证系统依赖
+# 核心认证库
+PyJWT==2.8.0
+
+# Web 框架 - 使用兼容版本
+Flask>=2.0.0,<3.0.0
+Werkzeug>=2.0.0,<3.0.0
+
+# 避免 blinker 冲突
+--no-deps

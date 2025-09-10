@@ -357,6 +357,7 @@ def main(ctx,
         )
 
     # 强制设置服务器绑定地址
+    import os
     if server_name is None:
         server_name = os.environ.get('GRADIO_SERVER_NAME', '0.0.0.0')
     if server_port is None:
