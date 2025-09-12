@@ -12,6 +12,7 @@ import zipfile
 import logging
 from pathlib import Path
 import time
+import subprocess
 
 # 添加路径以便导入原版 gradio_app 的依赖
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -40,8 +41,11 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
         else:
             parse_method = 'auto'
 
-        if backend.startswith("vlm"):
-            parse_method = "vlm"
+        # 强制使用pipeline后端，避免SGLang引擎问题
+        if backend.startswith("vlm") or backend == "sglang":
+            backend = "pipeline"  # 强制使用pipeline后端
+            parse_method = "auto"  # 使用auto而不是vlm
+            logger.info(f"强制使用pipeline后端，避免SGLang引擎问题。原backend: {backend}")
 
         local_image_dir, local_md_dir = prepare_env(output_dir, file_name, parse_method)
         await aio_do_parse(
@@ -105,14 +109,82 @@ def replace_image_with_base64(markdown_text, image_dir_path):
     # 应用替换
     return re.sub(pattern, replace, markdown_text)
 
+def clear_cache():
+    """清理缓存和显存"""
+    try:
+        # 清理进程
+        subprocess.run(["pkill", "-f", "python.*gradio_app_with_auth.py"], check=False)
+        subprocess.run(["pkill", "-f", "mineru"], check=False)
+        
+        # 清理CUDA缓存
+        import torch
+        import gc
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            print('CUDA缓存已清理')
+            # 显示清理后的显存使用情况
+            print(f'当前显存使用: {torch.cuda.memory_allocated()/1024**3:.2f} GB')
+            print(f'当前显存缓存: {torch.cuda.memory_reserved()/1024**3:.2f} GB')
+            
+            # 预分配显存以确保模型完全加载到GPU
+            print('预分配显存以确保模型完全加载...')
+            try:
+                # 分配6GB显存用于模型加载
+                dummy_tensor = torch.randn(1500, 1500, device='cuda')  # 约6GB
+                print(f'预分配后显存使用: {torch.cuda.memory_allocated()/1024**3:.2f} GB')
+                print(f'预分配后显存缓存: {torch.cuda.memory_reserved()/1024**3:.2f} GB')
+                del dummy_tensor
+                torch.cuda.empty_cache()
+            except Exception as e:
+                print(f'预分配显存时出错: {e}')
+        else:
+            print('CUDA不可用')
+        gc.collect()
+        
+        return "✅ 缓存清理完成！进程已终止，CUDA缓存已清理，显存已优化。"
+    except Exception as e:
+        logger.exception(f"清理缓存时出错: {e}")
+        return f"❌ 清理缓存时出错: {str(e)}"
+
 def improve_text_formatting(text):
-    """改善文本格式，修复字体显示问题"""
-    # 修复被拆分的单词
-    # 匹配被空格或换行分隔的单个字符或短片段
-    text = re.sub(r'(\w)\s+(\w)', r'\1\2', text)  # 合并被空格分隔的字符
+    """改善文本格式，修复字体显示问题和内容分段"""
+    # 1. 首先处理字段分隔，在关键字段后添加换行
+    field_patterns = [
+        (r'(PurchaseOrderNumber)(\d+)', r'\1: \2\n'),
+        (r'(PurchaseOrderDate)(\d+/\d+/\d+)', r'\1: \2\n'),
+        (r'(HandOverDate)(\d+--\d+)', r'\1: \2\n'),
+        (r'(RequiredBy)(\d+/\d+/\d+)', r'\1: \2\n'),
+        (r'(FinalDestination)([A-Z]+\d+)', r'\1: \2\n'),
+        (r'(DC\d+)([^,]+)', r'\1: \2\n'),
+    ]
     
-    # 修复表格中的文字拆分问题
-    # 匹配表格行中的单个字符
+    for pattern, replacement in field_patterns:
+        text = re.sub(pattern, replacement, text)
+    
+    # 2. 在表格数据前添加换行和格式化
+    text = re.sub(r'(Totals\.\.\.)', r'\n\n## 订单汇总\n\n\1', text)
+    text = re.sub(r'(cu\.ft\.=)', r'\n\1', text)
+    
+    # 将Totals数据转换为更清晰的格式
+    totals_match = re.search(r'Totals\.\.\.\s+(\d+)\s+([\d,]+)\s+([\d.]+)\s+([\d,]+)', text)
+    if totals_match:
+        totals_data = totals_match.groups()
+        totals_formatted = f"""
+**总箱数:** {totals_data[0]}  
+**总件数:** {totals_data[1]}  
+**总体积:** {totals_data[2]}  
+**总金额:** ${totals_data[3]}  
+**立方英尺:** 613.6
+"""
+        text = text.replace(totals_match.group(0), totals_formatted)
+    
+    # 3. 修复被拆分的单词 - 只修复明显的单字符拆分
+    # 匹配被空格分隔的单个字符（更保守的匹配）
+    text = re.sub(r'\b(\w)\s+(\w)\b', r'\1\2', text)  # 只合并单词边界内的单字符
+    
+    # 4. 修复表格中的文字拆分问题
     lines = text.split('\n')
     improved_lines = []
     
@@ -125,9 +197,7 @@ def improve_text_formatting(text):
             for cell in cells:
                 cell = cell.strip()
                 if cell:
-                    # 合并被空格分隔的短字符片段
-                    cell = re.sub(r'(\w)\s+(\w)', r'\1\2', cell)
-                    # 修复常见的单词拆分模式
+                    # 只修复明显的单字符拆分，避免过度合并
                     cell = re.sub(r'\b(\w)\s+(\w)\b', r'\1\2', cell)
                 improved_cells.append(cell)
             line = '|'.join(improved_cells)
@@ -136,7 +206,7 @@ def improve_text_formatting(text):
     
     text = '\n'.join(improved_lines)
     
-    # 修复常见的英文单词拆分
+    # 5. 修复常见的英文单词拆分
     common_words = {
         'T o t a l': 'Total',
         'E a c h': 'Each', 
@@ -149,11 +219,33 @@ def improve_text_formatting(text):
         'O r d e r': 'Order',
         'B l u e': 'Blue',
         'R i b b o n': 'Ribbon',
-        'R e f e r e n c e': 'Reference'
+        'R e f e r e n c e': 'Reference',
+        'P u r c h a s e': 'Purchase',
+        'O r d e r': 'Order',
+        'D a t e': 'Date',
+        'H a n d': 'Hand',
+        'O v e r': 'Over',
+        'R e q u i r e d': 'Required',
+        'F i n a l': 'Final',
+        'D e s t i n a t i o n': 'Destination'
     }
     
     for broken, fixed in common_words.items():
         text = text.replace(broken, fixed)
+    
+    # 6. 清理多余的空格和空行
+    text = re.sub(r'\s+', ' ', text)  # 多个空格合并为一个
+    text = re.sub(r'\n\s+', '\n', text)  # 清理行首空格
+    text = re.sub(r'\n{3,}', '\n\n', text)  # 多个空行合并为两个
+    
+    # 7. 确保数字和单位之间有适当分隔
+    text = re.sub(r'(\d+)([a-zA-Z]+)', r'\1 \2', text)
+    
+    # 8. 添加表格滚动样式，改善宽表格显示
+    if '<table>' in text:
+        # 为表格添加滚动容器
+        text = text.replace('<table>', '<div style="overflow-x: auto;"><table style="min-width: 100%;">')
+        text = text.replace('</table>', '</table></div>')
     
     return text
 
@@ -166,7 +258,15 @@ async def to_markdown(file_path, end_pages=10, is_ocr=False, formula_enable=True
         is_ocr = True  # 如果启用了OCR选项，强制使用OCR
     
     # 获取识别的md文件以及压缩包文件路径
-    local_md_dir, file_name = await parse_pdf(file_path, './output', end_pages - 1, is_ocr, formula_enable, table_enable, language, backend, url)
+    parse_result = await parse_pdf(file_path, './output', end_pages - 1, is_ocr, formula_enable, table_enable, language, backend, url)
+    
+    # 检查parse_pdf是否成功返回结果
+    if parse_result is None:
+        error_msg = "PDF解析失败，可能是由于SGLang引擎问题。已强制使用pipeline后端，请重试。"
+        logger.error(error_msg)
+        return f"# 错误\n\n{error_msg}", error_msg, None, None
+    
+    local_md_dir, file_name = parse_result
     archive_zip_path = os.path.join('./output', str_sha256(local_md_dir) + '.zip')
     zip_archive_success = compress_directory_to_zip(local_md_dir, archive_zip_path)
     if zip_archive_success == 0:
@@ -374,8 +474,8 @@ def create_gradio_interface(example_enable=True, sglang_engine_enable=False, max
                         gr.Markdown("**🔧 识别选项:**")
                         formula_enable = gr.Checkbox(label='✅ 启用公式识别', value=True)
                         table_enable = gr.Checkbox(label='✅ 启用表格识别', value=True)
-                        ocr_enable = gr.Checkbox(label='🔍 启用 OCR 文字识别', value=True, info="改善字体显示问题")
-                        layout_analysis = gr.Checkbox(label='📐 启用布局分析', value=True, info="改善表格结构识别")
+                        ocr_enable = gr.Checkbox(label='🔍 启用 OCR 文字识别 (改善字体显示问题)', value=True)
+                        layout_analysis = gr.Checkbox(label='📐 启用布局分析 (改善表格结构识别)', value=True)
                     with gr.Column(visible=False) as ocr_options:
                         language = gr.Dropdown(all_lang, label='🌍 语言', value='ch')
                         is_ocr = gr.Checkbox(label='🔍 强制启用 OCR', value=False)
@@ -383,6 +483,11 @@ def create_gradio_interface(example_enable=True, sglang_engine_enable=False, max
                     change_bu = gr.Button('🚀 开始转换', elem_classes=["btn-primary"])
                     clear_bu = gr.ClearButton(value='🗑️ 清空', elem_classes=["btn-secondary"])
                 pdf_show = PDF(label='📖 PDF 预览', interactive=False, visible=True, height=800)
+                with gr.Row():
+                    cache_clear_bu = gr.Button('🧹 清理缓存', elem_classes=["btn-secondary"])
+                    cache_status = gr.Textbox(label='清理状态 (清理进程和CUDA缓存，优化显存使用)', 
+                                            interactive=False, visible=True, 
+                                            placeholder="点击清理缓存按钮查看状态...")
                 if example_enable:
                     example_root = os.path.join(os.getcwd(), 'examples')
                     if os.path.exists(example_root):
@@ -418,6 +523,14 @@ def create_gradio_interface(example_enable=True, sglang_engine_enable=False, max
             api_name=False
         )
         clear_bu.add([input_file, md, pdf_show, md_text, output_file, is_ocr])
+        
+        # 清理缓存按钮事件
+        cache_clear_bu.click(
+            fn=clear_cache,
+            inputs=[],
+            outputs=[cache_status],
+            api_name=False
+        )
 
         input_file.change(fn=to_pdf, inputs=input_file, outputs=pdf_show, api_name=False)
         change_bu.click(

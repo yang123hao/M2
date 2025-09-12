@@ -1,0 +1,57 @@
+services:
+  # Gradio Web界面服务
+  mineru:
+    image: mineru-sglang:latest
+    container_name: mineru
+    restart: always
+    profiles: ["gradio"]
+    ports:
+      - "7860:7860"
+    env_file:
+      - ./mineru.env
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: 6
+      MINERU_DEVICE_MODE: cuda
+      PYTORCH_CUDA_ALLOC_CONF: max_split_size_mb:128
+      CUDA_LAUNCH_BLOCKING: 1
+    command: >
+      python /workspace/mineru/cli/gradio_app_with_auth.py
+      --server-name 0.0.0.0
+      --server-port 7860
+      --enable-sglang-engine False
+      --auth
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 8G
+
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - ../mineru:/workspace/mineru:ro
+
+networks:
+  default:
+    name: mineru-network
+    driver: bridge
+
+volumes:
+  models:
+    driver: local
+  logs:
+    driver: local
+  uploads:
+    driver: local
+  output:
+    driver: local

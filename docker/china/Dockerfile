@@ -3,7 +3,7 @@
 # For blackwell GPU, use the following line instead:
 FROM docker.m.daocloud.io/lmsysorg/sglang:v0.4.9.post6-cu128-b200
 
-# Use the official sglang image
+# Use the official sglang image (alternative)
 # FROM lmsysorg/sglang:v0.4.9.post6-cu126
 # For blackwell GPU, use the following line instead:
 # FROM lmsysorg/sglang:v0.4.9.post6-cu128-b200
